@@ -1,0 +1,372 @@
+import re
+import os
+import sys
+import time
+import pyte
+import shutil
+import tempfile
+import datetime
+import argparse
+from math import ceil
+from pynput import keyboard
+
+DEC_SPECIAL_GRAPHICS = {
+    "_": " ",
+    "`": "◆",
+    "a": "▒",
+    "b": "\t",
+    "c": "\f",
+    "d": "\r",
+    "e": "\n",
+    "f": "°",
+    "g": "±",
+    "h": "\025",
+    "i": "\v",
+    "j": "┘",
+    "k": "┐",
+    "l": "┌",
+    "m": "└",
+    "n": "┼",
+    "o": "⎺",
+    "p": "⎻",
+    "q": "─",
+    "r": "⎼",
+    "s": "⎽",
+    "t": "├",
+    "u": "┤",
+    "v": "┴",
+    "w": "┬",
+    "x": "│",
+    "y": "≤",
+    "z": "≥",
+    "{": "π",
+    "|": "≠",
+    "}": "£",
+    "~": "·",
+}
+
+
+class CustomStream(pyte.Stream):
+    def __init__(self, screen):
+        super().__init__(screen)
+        self.dec_mode = False
+        self.previous_char = ""
+
+    def feed(self, data):
+        i = 0
+        total_data = len(data)
+        while i < total_data:
+            if data[i : i + 3] == "\x1b(0":
+                self.dec_mode = True
+                i += 3
+            elif data[i : i + 3] == "\x1b(B":
+                self.dec_mode = False
+                i += 3
+            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9;]*?)m", data[i + 2 : i + 10])):
+                codes = match.groups(0)[0]
+                reset = "\033[0m"
+                if not codes:
+                    super().feed(reset)
+                elif "0" in codes.split(";"):
+                    super().feed(reset)
+                else:
+                    super().feed(data[i : i + len(codes) + 3])
+                i += len(codes) + 3
+            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*?)b", data[i + 2 : i + 6])):
+                length = match.groups(0)[0]
+                for j in range(int(length)):
+                    super().feed(self.previous_char)
+                i += len(length) + 3
+            elif self.dec_mode and (dec_char := DEC_SPECIAL_GRAPHICS.get(data[i])):
+                self.previous_char = dec_char
+                super().feed(dec_char)
+                i += 1
+            else:
+                self.previous_char = data[i]
+                super().feed(data[i])
+                i += 1
+
+
+class App:
+    def __init__(self, filepath, width=None, height=None, timestep=None):
+        self.temp_files = []
+
+        if "://" in filepath:
+            import urllib.request
+
+            tmp = tempfile.NamedTemporaryFile(suffix=os.path.basename(filepath))
+            self.temp_files.append(tmp)
+            urllib.request.urlretrieve(filepath, tmp.name)
+            filepath = tmp.name
+
+        if filepath.lower().endswith(".gz"):
+            import gzip
+
+            with gzip.open(filepath, "rb") as f_in:
+                tmp = tempfile.NamedTemporaryFile(suffix=os.path.basename(filepath[:-3]))
+                self.temp_files.append(tmp)
+                shutil.copyfileobj(f_in, tmp)
+                filepath = tmp.name
+
+        if os.path.exists(filepath):
+            self.filepath = filepath
+        else:
+            print("Could not open file", filepath)
+            sys.exit(1)
+
+        self.file = open(self.filepath, "rb")
+        self.i = 0
+        self.total_bytes = os.stat(self.filepath).st_size
+        self.bytes_processed = 0
+        self.timestep = timestep
+
+        self.width = width
+        self.height = height
+        self.state = "play"
+        self.is_dirty = True
+        self.last_draw_time = 0
+        self.speed = 1
+        self.has_timecap = True
+        self.is_loaded = False
+        self.cache = []
+        self.current_frame = 1
+        self.total_frames = 0
+        self.tz = datetime.timezone(datetime.timedelta())
+        self.fg_codes = {
+            "black": "30",
+            "red": "31",
+            "green": "32",
+            "brown": "33",
+            "blue": "34",
+            "magenta": "35",
+            "cyan": "36",
+            "white": "37",
+            "brightblack": "90",
+            "brightred": "91",
+            "brightgreen": "92",
+            "brightyellow": "93",
+            "brightblue": "94",
+            "brightmagenta": "95",
+            "brightcyan": "96",
+            "brightwhite": "97",
+        }
+        self.bg_codes = {
+            "black": "40",
+            "red": "41",
+            "green": "42",
+            "brown": "43",
+            "blue": "44",
+            "magenta": "45",
+            "cyan": "46",
+            "white": "47",
+            "brightblack": "100",
+            "brightred": "101",
+            "brightgreen": "102",
+            "brightyellow": "103",
+            "brightblue": "104",
+            "brightmagenta": "105",
+            "brightcyan": "106",
+            "brightwhite": "107",
+        }
+
+    def run(self):
+        self.setup_terminal()
+        self.load()
+        listener = keyboard.Listener(on_press=self.on_press, suppress=True)
+        listener.start()
+        while True:
+            self.load()
+            if self.state == "quit":
+                for t in self.temp_files:
+                    t.close()
+                sys.exit(0)
+                self.file.close()
+            if self.is_dirty:
+                self.display(self.current_frame)
+                self.show_ui()
+                self.is_dirty = False
+                self.last_draw_time = time.time()
+            if self.state == "play":
+                duration = self.cache[self.current_frame - 1][2]
+                if self.has_timecap and duration > 1:
+                    duration = 1
+                duration /= self.speed
+                if time.time() - self.last_draw_time >= duration:
+                    self.seek(delta=1)
+
+    def seek(self, frame=0, delta=0):
+        previous_frame = self.current_frame
+        if delta:
+            self.current_frame += delta
+        else:
+            self.current_frame = frame
+        if self.current_frame > self.total_frames:
+            self.current_frame = self.total_frames
+        elif self.current_frame < 1:
+            self.current_frame = 1
+        if self.current_frame != previous_frame:
+            self.is_dirty = True
+
+    def show_ui(self):
+        seconds = self.cache[self.current_frame - 1][0]
+        dt = (
+            datetime.datetime.fromtimestamp(seconds, tz=self.tz)
+            .isoformat()
+            .split("+")[0]
+            .split(".")[0]
+            .replace("T", " ")
+        )
+        elapsed = int(seconds - self.cache[0][0])
+        progress = ceil(self.current_frame / self.total_frames * 80)
+        remaining = 80 - progress
+        progress = "=" * progress
+        play_icon = ">" if self.state == "play" else "|"
+        if progress:
+            progress = progress[:-1] + play_icon
+        else:
+            progress = play_icon
+            remaining -= 1
+        remaining = "-" * remaining
+        sys.stdout.write("\n")
+        if not self.is_loaded:
+            percent = int(self.bytes_processed / self.total_bytes * 100)
+            sys.stdout.write(f"{percent}% loaded ...")
+        sys.stdout.write(f"\n[{progress}{remaining}]")
+        timecap = ""
+        if self.has_timecap:
+            timecap = " [Timecap]"
+        sys.stdout.write(
+            f"\n{dt} - {elapsed} seconds elapsed - {self.current_frame} / {self.total_frames} frames ({self.speed}X speed){timecap}"
+        )
+        play = "Pause" if self.state == "play" else "Play"
+        sys.stdout.write(f"\n[q Quit] [<space> {play}] [lL +1/10 Next] [hH -1/10 Prev] [jk Speed] [c Timecap]")
+        sys.stdout.flush()
+
+    def render(self, screen):
+        total_lines = screen.lines
+        total_columns = screen.columns
+        lines = [" " * total_columns] * total_lines
+        for y, row in screen.buffer.items():
+            line = [" "] * total_columns
+            for x, cell in row.items():
+                line[x] = self.render_cell(cell)
+            lines[y] = "".join(line)
+        return "\n".join(lines)
+
+    def render_cell(self, cell):
+        fg = cell.fg
+        bg = cell.bg
+        if cell.reverse:
+            fg, bg = bg, fg
+        if bg != "default" and fg == "default":
+            fg = "black"
+        codes = []
+        if code := self.fg_codes.get(fg, None):
+            codes.append(code)
+        if code := self.bg_codes.get(bg, None):
+            codes.append(code)
+        if cell.bold:
+            codes.append("1")
+        if cell.italics:
+            codes.append("3")
+        if cell.underscore:
+            codes.append("4")
+        char = cell.data or " "
+        if codes:
+            codes = ";".join(codes)
+            return f"\033[{codes}m{char}\033[0m"
+        return char
+
+    def display(self, frame):
+        sys.stdout.write("\x1b[2J\x1b[H")  # Clear screen
+        sys.stdout.write(self.cache[frame - 1][1])
+        sys.stdout.flush()
+
+    def setup_terminal(self):
+        terminal_size = shutil.get_terminal_size((80, 24 + 4))  # 4 UI rows
+        width, height = self.width or terminal_size.columns, self.height or terminal_size.lines
+        self.screen = pyte.Screen(width, height - 4)
+        self.stream = CustomStream(self.screen)
+
+    def load(self):
+        if self.is_loaded:
+            return
+        seconds = int.from_bytes(self.file.read(4), byteorder="little")
+        useconds = int.from_bytes(self.file.read(4), byteorder="little")
+        length = int.from_bytes(self.file.read(4), byteorder="little")
+        seconds += useconds / 1000000
+        if self.i % 200 == 0:
+            self.is_dirty = True
+        payload = self.file.read(length)
+        self.bytes_processed += 12 + length
+        if not payload:
+            self.is_loaded = True
+            self.is_dirty = True
+            return
+        # print(payload)
+        # sys.stdout.write(payload.decode("cp437"))
+        # sys.stdout.flush()
+        self.stream.feed(payload.decode("cp437"))
+        # stream.feed(payload.decode("ascii"))
+        # stream.feed(payload.decode("utf8"))
+        if self.i != 0:
+            duration = seconds - self.cache[-1][0]
+            if duration > (self.timestep / 1000000):  # Merge frames
+                self.cache[-1][2] = duration
+                self.cache.append([seconds, self.render(self.screen), 0])
+            else:
+                self.cache[-1] = [seconds, self.render(self.screen), 0]
+        else:
+            self.cache.append([seconds, self.render(self.screen), 0])
+        self.i += 1
+        # if self.i == 1000:
+        #     break
+        self.total_frames = len(self.cache)
+
+    def on_press(self, key):
+        self.is_dirty = True
+        try:
+            if key == keyboard.Key.space:
+                self.state = "play" if self.state == "pause" else "pause"
+            elif key.char == "q":
+                self.state = "quit"
+            elif key.char == "l":
+                self.seek(delta=1 * self.speed)
+            elif key.char == "L":
+                self.seek(delta=10 * self.speed)
+            elif key.char == "h":
+                self.seek(delta=-1 * self.speed)
+            elif key.char == "H":
+                self.seek(delta=-10 * self.speed)
+            elif key.char == "c":
+                self.has_timecap = not self.has_timecap
+            elif key.char == "j":
+                self.speed /= 2
+                self.speed = int(self.speed)
+                if self.speed < 1:
+                    self.speed = 1
+            elif key.char == "k":
+                self.speed *= 2
+        except:
+            pass
+
+
+parser = argparse.ArgumentParser(prog="pyttyplay", description="A simple ttyrec player tailored for NetHack")
+parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
+parser.add_argument("--size", "-s", help="WxH. Defaults to the active terminal size. E.g. 80x24")
+parser.add_argument("--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 50.", default=50)
+args = parser.parse_args()
+size = args.size
+width, height = None, None
+if size:
+    try:
+        width, height = size.lower().split("x")
+        width, height = int(width), int(height)
+    except:
+        pass
+timestep = 50
+try:
+    timestep = int(args.timestep)
+except:
+    pass
+App(args.filepath, width=width, height=height, timestep=timestep).run()
