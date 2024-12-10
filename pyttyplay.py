@@ -124,7 +124,7 @@ class App:
         self.height = height
         self.state = "play"
         self.is_dirty = True
-        self.last_draw_time = 0
+        self.current_frame_time = 0
         self.speed = 1
         self.has_timecap = True
         self.is_loaded = False
@@ -172,7 +172,7 @@ class App:
     def run(self):
         self.setup_terminal()
         self.load()
-        listener = keyboard.Listener(on_press=self.on_press, suppress=True)
+        listener = keyboard.Listener(on_press=self.on_press, suppress=False)
         listener.start()
         while True:
             self.load()
@@ -185,13 +185,12 @@ class App:
                 self.display(self.current_frame)
                 self.show_ui()
                 self.is_dirty = False
-                self.last_draw_time = time.time()
             if self.state == "play":
                 duration = self.cache[self.current_frame - 1][2]
                 if self.has_timecap and duration > 1:
                     duration = 1
                 duration /= self.speed
-                if time.time() - self.last_draw_time >= duration:
+                if time.time() - self.current_frame_time >= duration:
                     self.seek(delta=1)
 
     def seek(self, frame=0, delta=0):
@@ -205,6 +204,7 @@ class App:
         elif self.current_frame < 1:
             self.current_frame = 1
         if self.current_frame != previous_frame:
+            self.current_frame_time = time.time()
             self.is_dirty = True
 
     def show_ui(self):
@@ -217,6 +217,16 @@ class App:
             .replace("T", " ")
         )
         elapsed = int(seconds - self.cache[0][0])
+        h, m, s = str(datetime.timedelta(seconds=elapsed)).split(":")
+        elapsed = ""
+        if h != "0":
+            elapsed = f"{h}h "
+        if m != "00":
+            elapsed += f"{m}m "
+        if s == "00":
+            s = "0"
+        elapsed += f"{s}s elapsed"
+
         progress = ceil(self.current_frame / self.total_frames * 80)
         remaining = 80 - progress
         progress = "=" * progress
@@ -236,7 +246,7 @@ class App:
         if self.has_timecap:
             timecap = " [Timecap]"
         sys.stdout.write(
-            f"\n{dt} - {elapsed} seconds elapsed - {self.current_frame} / {self.total_frames} frames ({self.speed}X speed){timecap}"
+            f"\n{dt} - {elapsed} - {self.current_frame} / {self.total_frames} frames ({self.speed}X speed){timecap}"
         )
         play = "Pause" if self.state == "play" else "Play"
         sys.stdout.write(f"\n[q Quit] [<space> {play}] [lL +1/10 Next] [hH -1/10 Prev] [jk Speed] [c Timecap]")
@@ -285,7 +295,7 @@ class App:
     def setup_terminal(self):
         terminal_size = shutil.get_terminal_size((80, 24 + 4))  # 4 UI rows
         width, height = self.width or terminal_size.columns, self.height or terminal_size.lines
-        self.screen = pyte.Screen(width, height - 4)
+        self.screen = pyte.Screen(width, height)
         self.stream = CustomStream(self.screen)
 
     def load(self):
