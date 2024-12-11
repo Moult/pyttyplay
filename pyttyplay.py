@@ -62,22 +62,14 @@ class CustomStream(pyte.Stream):
             elif data[i : i + 3] == "\x1b(B":
                 self.dec_mode = False
                 i += 3
-            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9;]*?)m", data[i + 2 : i + 10])):
-                codes = match.groups(0)[0]
-                reset = "\033[0m"
-                if not codes:
-                    super().feed(reset)
-                elif "0" in codes.split(";"):
-                    super().feed(reset)
-                else:
-                    super().feed(data[i : i + len(codes) + 3])
-                i += len(codes) + 3
             elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*?)b", data[i + 2 : i + 6])):
+                # pyte doesn't handle repeat sequences https://github.com/selectel/pyte/issues/184
                 length = match.groups(0)[0]
                 for j in range(int(length)):
                     super().feed(self.previous_char)
                 i += len(length) + 3
-            elif self.dec_mode and (dec_char := DEC_SPECIAL_GRAPHICS.get(data[i])):
+            elif self.dec_mode and self._taking_plain_text and (dec_char := DEC_SPECIAL_GRAPHICS.get(data[i])):
+                # pyte doesn't support DEC graphics https://github.com/selectel/pyte/issues/182
                 self.previous_char = dec_char
                 super().feed(dec_char)
                 i += 1
@@ -144,7 +136,7 @@ class App:
             "brightblack": "90",
             "brightred": "91",
             "brightgreen": "92",
-            "brightyellow": "93",
+            "brightbrown": "93",
             "brightblue": "94",
             "brightmagenta": "95",
             "brightcyan": "96",
@@ -162,9 +154,10 @@ class App:
             "brightblack": "100",
             "brightred": "101",
             "brightgreen": "102",
-            "brightyellow": "103",
+            "brightbrown": "103",
             "brightblue": "104",
             "brightmagenta": "105",
+            "bfightmagenta": "105", # See https://github.com/selectel/pyte/pull/183
             "brightcyan": "106",
             "brightwhite": "107",
         }
@@ -252,11 +245,11 @@ class App:
         sys.stdout.write(f"\n[q Quit] [<space> {play}] [lL +1/10 Next] [hH -1/10 Prev] [jk Speed] [c Timecap]")
         sys.stdout.flush()
 
-    def render(self, screen):
-        total_lines = screen.lines
-        total_columns = screen.columns
+    def render(self):
+        total_lines = self.screen.lines
+        total_columns = self.screen.columns
         lines = [" " * total_columns] * total_lines
-        for y, row in screen.buffer.items():
+        for y, row in self.screen.buffer.items():
             line = [" "] * total_columns
             for x, cell in row.items():
                 line[x] = self.render_cell(cell)
@@ -294,7 +287,7 @@ class App:
 
     def setup_terminal(self):
         terminal_size = shutil.get_terminal_size((80, 24 + 4))  # 4 UI rows
-        width, height = self.width or terminal_size.columns, self.height or terminal_size.lines
+        width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - 4)
         self.screen = pyte.Screen(width, height)
         self.stream = CustomStream(self.screen)
 
@@ -313,7 +306,7 @@ class App:
             self.is_loaded = True
             self.is_dirty = True
             return
-        # print(payload)
+        # print(repr(payload))
         # sys.stdout.write(payload.decode("cp437"))
         # sys.stdout.flush()
         self.stream.feed(payload.decode("cp437"))
@@ -323,11 +316,11 @@ class App:
             duration = seconds - self.cache[-1][0]
             if duration > (self.timestep / 1000000):  # Merge frames
                 self.cache[-1][2] = duration
-                self.cache.append([seconds, self.render(self.screen), 0])
+                self.cache.append([seconds, self.render(), 0])
             else:
-                self.cache[-1] = [seconds, self.render(self.screen), 0]
+                self.cache[-1] = [seconds, self.render(), 0]
         else:
-            self.cache.append([seconds, self.render(self.screen), 0])
+            self.cache.append([seconds, self.render(), 0])
         self.i += 1
         # if self.i == 1000:
         #     break
