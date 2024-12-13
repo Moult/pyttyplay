@@ -8,6 +8,7 @@ import tempfile
 import datetime
 import argparse
 import tty
+
 # Use msvcrt on Windows
 # https://stackoverflow.com/questions/2408560/non-blocking-console-input
 
@@ -159,7 +160,7 @@ class App:
             "brightbrown": "103",
             "brightblue": "104",
             "brightmagenta": "105",
-            "bfightmagenta": "105", # See https://github.com/selectel/pyte/pull/183
+            "bfightmagenta": "105",  # See https://github.com/selectel/pyte/pull/183
             "brightcyan": "106",
             "brightwhite": "107",
         }
@@ -335,7 +336,7 @@ class App:
     def on_press(self, key):
         self.is_dirty = True
         try:
-            if key == ' ':
+            if key == " ":
                 self.state = "play" if self.state == "pause" else "pause"
             elif key == "q":
                 self.state = "quit"
@@ -350,20 +351,27 @@ class App:
             elif key == "c":
                 self.has_timecap = not self.has_timecap
             elif key == "j":
-                self.speed /= 2
-                self.speed = int(self.speed)
-                if self.speed < 1:
-                    self.speed = 1
+                self.multiply_speed(0.5)
             elif key == "k":
-                self.speed *= 2
+                self.multiply_speed(2)
         except:
             pass
+
+    def multiply_speed(self, factor):
+        self.speed *= factor
+        self.speed = round(self.speed, 2)
+        if self.speed >= 1:
+            self.speed = int(self.speed)
+        elif self.speed < 0.25:
+            self.speed = 0.25
 
 
 parser = argparse.ArgumentParser(prog="pyttyplay", description="A simple ttyrec player tailored for NetHack")
 parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
 parser.add_argument("--size", "-s", help="WxH. Defaults to the active terminal size. E.g. 80x24")
-parser.add_argument("--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 50.", default=50)
+parser.add_argument(
+    "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 50.", default=50
+)
 args = parser.parse_args()
 size = args.size
 width, height = None, None
