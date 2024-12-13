@@ -7,8 +7,10 @@ import shutil
 import tempfile
 import datetime
 import argparse
-from math import ceil
-from pynput import keyboard
+import tty
+# Use msvcrt on Windows
+# https://stackoverflow.com/questions/2408560/non-blocking-console-input
+
 
 DEC_SPECIAL_GRAPHICS = {
     "_": " ",
@@ -163,17 +165,20 @@ class App:
         }
 
     def run(self):
+        tty.setcbreak(sys.stdin)
         self.setup_terminal()
         self.load()
-        listener = keyboard.Listener(on_press=self.on_press, suppress=False)
-        listener.start()
         while True:
+            os.set_blocking(sys.stdin.fileno(), False)
+            if key := sys.stdin.read(1):
+                self.on_press(key)
+            os.set_blocking(sys.stdin.fileno(), True)
             self.load()
             if self.state == "quit":
                 for t in self.temp_files:
                     t.close()
-                sys.exit(0)
                 self.file.close()
+                sys.exit(0)
             if self.is_dirty:
                 self.display(self.current_frame)
                 self.show_ui()
@@ -185,6 +190,7 @@ class App:
                 duration /= self.speed
                 if time.time() - self.current_frame_time >= duration:
                     self.seek(delta=1)
+            time.sleep(self.timestep / 1000000)
 
     def seek(self, frame=0, delta=0):
         previous_frame = self.current_frame
@@ -220,7 +226,7 @@ class App:
             s = "0"
         elapsed += f"{s}s elapsed"
 
-        progress = ceil(self.current_frame / self.total_frames * 80)
+        progress = int(self.current_frame / self.total_frames * 80)
         remaining = 80 - progress
         progress = "=" * progress
         play_icon = ">" if self.state == "play" else "|"
@@ -329,26 +335,26 @@ class App:
     def on_press(self, key):
         self.is_dirty = True
         try:
-            if key == keyboard.Key.space:
+            if key == ' ':
                 self.state = "play" if self.state == "pause" else "pause"
-            elif key.char == "q":
+            elif key == "q":
                 self.state = "quit"
-            elif key.char == "l":
+            elif key == "l":
                 self.seek(delta=1 * self.speed)
-            elif key.char == "L":
+            elif key == "L":
                 self.seek(delta=10 * self.speed)
-            elif key.char == "h":
+            elif key == "h":
                 self.seek(delta=-1 * self.speed)
-            elif key.char == "H":
+            elif key == "H":
                 self.seek(delta=-10 * self.speed)
-            elif key.char == "c":
+            elif key == "c":
                 self.has_timecap = not self.has_timecap
-            elif key.char == "j":
+            elif key == "j":
                 self.speed /= 2
                 self.speed = int(self.speed)
                 if self.speed < 1:
                     self.speed = 1
-            elif key.char == "k":
+            elif key == "k":
                 self.speed *= 2
         except:
             pass
