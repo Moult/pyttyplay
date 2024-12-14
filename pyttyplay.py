@@ -8,6 +8,7 @@ import tempfile
 import datetime
 import argparse
 import tty
+from math import ceil
 
 # Use msvcrt on Windows
 # https://stackoverflow.com/questions/2408560/non-blocking-console-input
@@ -53,6 +54,7 @@ class CustomStream(pyte.Stream):
     def __init__(self, screen):
         super().__init__(screen)
         self.dec_mode = False
+        self.scroll_region = [1, screen.lines]
         self.previous_char = ""
 
     def feed(self, data):
@@ -67,7 +69,7 @@ class CustomStream(pyte.Stream):
                 i += 3
             elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*?)b", data[i + 2 : i + 6])):
                 # pyte doesn't handle repeat sequences https://github.com/selectel/pyte/issues/184
-                length = match.groups(0)[0]
+                length = match[1]
                 for j in range(int(length)):
                     super().feed(self.previous_char)
                 i += len(length) + 3
@@ -76,6 +78,34 @@ class CustomStream(pyte.Stream):
                 self.previous_char = dec_char
                 super().feed(dec_char)
                 i += 1
+            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]+);([0-9]+)r", data[i + 2 : i + 10])):
+                # pyte doesn't support scroll region https://github.com/selectel/pyte/issues/186
+                self.scroll_region = tuple(int(x) for x in match.groups())
+                i += len(match[0]) + 2
+            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)S", data[i + 2 : i + 6])):  # Up
+                # pyte doesn't support scroll up https://github.com/selectel/pyte/issues/186
+                number = int(match[1] or 1)
+                for j in range(number):
+                    for k in range(self.scroll_region[0] - 1, self.scroll_region[1] - 1):
+                        self.listener.buffer[k] = self.listener.buffer[k + 1]
+                    self.listener.buffer[self.scroll_region[1] - 1] = pyte.screens.StaticDefaultDict(
+                        self.listener.default_char
+                    )
+                i += len(match[0]) + 2
+            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)T", data[i + 2 : i + 6])):  # Down
+                # pyte doesn't support scroll down https://github.com/selectel/pyte/issues/186
+                number = int(match[1] or 1)
+                for j in range(number):
+                    for k in list(range(self.scroll_region[0] - 1, self.scroll_region[1] - 1))[::-1]:
+                        self.listener.buffer[k + 1] = self.listener.buffer[k]
+                    self.listener.buffer[self.scroll_region[0] - 1] = pyte.screens.StaticDefaultDict(
+                        self.listener.default_char
+                    )
+                i += len(match[0]) + 2
+            elif data[i : i + 3] == "\x1b[r":
+                # pyte doesn't support scroll region reset https://github.com/selectel/pyte/issues/186
+                self.scroll_region = [1, self.listener.lines]
+                i += 3
             else:
                 self.previous_char = data[i]
                 super().feed(data[i])
@@ -343,13 +373,13 @@ class App:
             elif key == "q":
                 self.state = "quit"
             elif key == "l":
-                self.seek(delta=1 * self.speed)
+                self.seek(delta=1 * ceil(self.speed))
             elif key == "L":
-                self.seek(delta=10 * self.speed)
+                self.seek(delta=10 * ceil(self.speed))
             elif key == "h":
-                self.seek(delta=-1 * self.speed)
+                self.seek(delta=-1 * ceil(self.speed))
             elif key == "H":
-                self.seek(delta=-10 * self.speed)
+                self.seek(delta=-10 * ceil(self.speed))
             elif key == "c":
                 self.has_timecap = not self.has_timecap
             elif key == "j":
