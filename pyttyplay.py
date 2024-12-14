@@ -85,23 +85,16 @@ class CustomStream(pyte.Stream):
             elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)S", data[i + 2 : i + 6])):  # Up
                 # pyte doesn't support scroll up https://github.com/selectel/pyte/issues/186
                 number = int(match[1] or 1)
-                for j in range(number):
-                    for k in range(self.scroll_region[0] - 1, self.scroll_region[1] - 1):
-                        self.listener.buffer[k] = self.listener.buffer[k + 1]
-                    self.listener.buffer[self.scroll_region[1] - 1] = pyte.screens.StaticDefaultDict(
-                        self.listener.default_char
-                    )
+                self.scroll_up(number)
                 i += len(match[0]) + 2
             elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)T", data[i + 2 : i + 6])):  # Down
                 # pyte doesn't support scroll down https://github.com/selectel/pyte/issues/186
                 number = int(match[1] or 1)
-                for j in range(number):
-                    for k in list(range(self.scroll_region[0] - 1, self.scroll_region[1] - 1))[::-1]:
-                        self.listener.buffer[k + 1] = self.listener.buffer[k]
-                    self.listener.buffer[self.scroll_region[0] - 1] = pyte.screens.StaticDefaultDict(
-                        self.listener.default_char
-                    )
+                self.scroll_down(number)
                 i += len(match[0]) + 2
+            elif data[i] == "\n" and self.listener.cursor.y + 1 == self.scroll_region[1]:
+                self.scroll_up(1)
+                i += 1
             elif data[i : i + 3] == "\x1b[r":
                 # pyte doesn't support scroll region reset https://github.com/selectel/pyte/issues/186
                 self.scroll_region = [1, self.listener.lines]
@@ -110,6 +103,18 @@ class CustomStream(pyte.Stream):
                 self.previous_char = data[i]
                 super().feed(data[i])
                 i += 1
+
+    def scroll_up(self, number):
+        for j in range(number):
+            for k in range(self.scroll_region[0] - 1, self.scroll_region[1] - 1):
+                self.listener.buffer[k] = self.listener.buffer[k + 1]
+            self.listener.buffer[self.scroll_region[1] - 1] = pyte.screens.StaticDefaultDict(self.listener.default_char)
+
+    def scroll_down(self, number):
+        for j in range(number):
+            for k in list(range(self.scroll_region[0] - 1, self.scroll_region[1] - 1))[::-1]:
+                self.listener.buffer[k + 1] = self.listener.buffer[k]
+            self.listener.buffer[self.scroll_region[0] - 1] = pyte.screens.StaticDefaultDict(self.listener.default_char)
 
 
 class App:
