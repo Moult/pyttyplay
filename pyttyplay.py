@@ -268,6 +268,8 @@ class App:
         bg = cell.bg
         if cell.reverse:
             fg, bg = bg, fg
+            if bg == "default":
+                bg = "white"
         if bg != "default" and fg == "default":
             fg = "black"
         codes = []
