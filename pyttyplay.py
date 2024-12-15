@@ -267,17 +267,19 @@ class App:
         sys.stdout.flush()
 
     def render(self):
+        cursor_x = self.screen.cursor.x
+        cursor_y = self.screen.cursor.y
         total_lines = self.screen.lines
         total_columns = self.screen.columns
         lines = [" " * total_columns] * total_lines
         for y, row in self.screen.buffer.items():
             line = [" "] * total_columns
             for x, cell in row.items():
-                line[x] = self.render_cell(cell)
+                line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
             lines[y] = "".join(line)
         return "\n".join(lines)
 
-    def render_cell(self, cell):
+    def render_cell(self, cell, is_cursor=False):
         fg = cell.fg
         bg = cell.bg
         if cell.reverse:
@@ -286,6 +288,9 @@ class App:
                 bg = "white"
         if bg != "default" and fg == "default":
             fg = "black"
+        if is_cursor:
+            fg = "black"
+            bg = "white"
         indexed_colours = []
         rgb_colours = []
         if code := self.fg_ansi.get(fg, self.fg_aixterm.get(fg, None)):
