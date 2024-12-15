@@ -83,20 +83,18 @@ class CustomStream(pyte.Stream):
                 self.scroll_region = tuple(int(x) for x in match.groups())
                 i += len(match[0]) + 2
             elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)S", data[i + 2 : i + 6])):  # Up
-                # pyte doesn't support scroll up https://github.com/selectel/pyte/issues/186
-                number = int(match[1] or 1)
-                self.scroll_up(number)
+                self.scroll_up(int(match[1] or 1))
                 i += len(match[0]) + 2
-            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)T", data[i + 2 : i + 6])):  # Down
-                # pyte doesn't support scroll down https://github.com/selectel/pyte/issues/186
-                number = int(match[1] or 1)
-                self.scroll_down(number)
+            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)T", data[i + 2 : i + 6])):
+                self.scroll_down(int(match[1] or 1))
                 i += len(match[0]) + 2
             elif data[i] == "\n" and self.listener.cursor.y + 1 == self.scroll_region[1]:
                 self.scroll_up(1)
                 i += 1
+            elif data[i : i + 2] == "\x1bM" and self.listener.cursor.y + 1 == self.scroll_region[0]:
+                self.scroll_down(1)
+                i += 2
             elif data[i : i + 3] == "\x1b[r":
-                # pyte doesn't support scroll region reset https://github.com/selectel/pyte/issues/186
                 self.scroll_region = [1, self.listener.lines]
                 i += 3
             else:
@@ -350,9 +348,6 @@ class App:
             self.is_loaded = True
             self.is_dirty = True
             return
-        # print(repr(payload))
-        # sys.stdout.write(payload.decode("cp437"))
-        # sys.stdout.flush()
         self.stream.feed(payload.decode("cp437"))
         # stream.feed(payload.decode("ascii"))
         # stream.feed(payload.decode("utf8"))
@@ -366,8 +361,6 @@ class App:
         else:
             self.cache.append([seconds, self.render(), 0])
         self.i += 1
-        # if self.i == 1000:
-        #     break
         self.total_frames = len(self.cache)
 
     def on_press(self, key):
