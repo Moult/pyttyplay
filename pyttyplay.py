@@ -97,6 +97,20 @@ class CustomStream(pyte.Stream):
             elif data[i : i + 3] == "\x1b[r":
                 self.scroll_region = [1, self.listener.lines]
                 i += 3
+            elif data[i : i + 4] == "\x1b]4;" and (match := re.match("([0-9]+);rgb:(.{8})", data[i + 4 : i + 20])):
+                # pyte doesn't handle colour pallettes https://github.com/selectel/pyte/issues/50
+                # TODO: handle resetting pallette.
+                index = int(match[1])
+                color = match[2].replace("/", "").lower()
+                if index > 15:
+                    pyte.graphics.FG_BG_256[index] = color
+                elif index > 7:  # Bright colors
+                    pyte.graphics.FG_AIXTERM[index + 82] = color
+                    pyte.graphics.BG_AIXTERM[index + 92] = color
+                else:
+                    pyte.graphics.FG_ANSI[index + 30] = color
+                    pyte.graphics.BG_ANSI[index + 40] = color
+                i += len(match[0]) + 4
             else:
                 self.previous_char = data[i]
                 super().feed(data[i])
@@ -160,43 +174,10 @@ class App:
         self.current_frame = 1
         self.total_frames = 0
         self.tz = datetime.timezone(datetime.timedelta())
-        self.fg_codes = {
-            "black": "30",
-            "red": "31",
-            "green": "32",
-            "brown": "33",
-            "blue": "34",
-            "magenta": "35",
-            "cyan": "36",
-            "white": "37",
-            "brightblack": "90",
-            "brightred": "91",
-            "brightgreen": "92",
-            "brightbrown": "93",
-            "brightblue": "94",
-            "brightmagenta": "95",
-            "brightcyan": "96",
-            "brightwhite": "97",
-        }
-        self.bg_codes = {
-            "black": "40",
-            "red": "41",
-            "green": "42",
-            "brown": "43",
-            "blue": "44",
-            "magenta": "45",
-            "cyan": "46",
-            "white": "47",
-            "brightblack": "100",
-            "brightred": "101",
-            "brightgreen": "102",
-            "brightbrown": "103",
-            "brightblue": "104",
-            "brightmagenta": "105",
-            "bfightmagenta": "105",  # See https://github.com/selectel/pyte/pull/183
-            "brightcyan": "106",
-            "brightwhite": "107",
-        }
+        self.fg_ansi = {v: k for k, v in pyte.graphics.FG_ANSI.items()}
+        self.bg_ansi = {v: k for k, v in pyte.graphics.BG_ANSI.items()}
+        self.fg_aixterm = {v: k for k, v in pyte.graphics.FG_AIXTERM.items()}
+        self.bg_aixterm = {v: k for k, v in pyte.graphics.BG_AIXTERM.items()}
 
     def run(self):
         tty.setcbreak(sys.stdin)
@@ -305,22 +286,36 @@ class App:
                 bg = "white"
         if bg != "default" and fg == "default":
             fg = "black"
-        codes = []
-        if code := self.fg_codes.get(fg, None):
-            codes.append(code)
-        if code := self.bg_codes.get(bg, None):
-            codes.append(code)
+        indexed_colours = []
+        rgb_colours = []
+        if code := self.fg_ansi.get(fg, self.fg_aixterm.get(fg, None)):
+            indexed_colours.append(str(code))
+        elif len(fg) == 6:
+            r, g, b = tuple(int(fg[i : i + 2], 16) for i in (0, 2, 4))
+            rgb_colours.append(f"\033[38;2;{r};{g};{b}m")
+
+        if code := self.bg_ansi.get(bg, self.bg_aixterm.get(bg, None)):
+            indexed_colours.append(str(code))
+        elif len(bg) == 6:
+            r, g, b = tuple(int(bg[i : i + 2], 16) for i in (0, 2, 4))
+            rgb_colours.append(f"\033[48;2;{r};{g};{b}m")
         if cell.bold:
-            codes.append("1")
+            indexed_colours.append("1")
         if cell.italics:
-            codes.append("3")
+            indexed_colours.append("3")
         if cell.underscore:
-            codes.append("4")
+            indexed_colours.append("4")
         char = cell.data or " "
-        if codes:
-            codes = ";".join(codes)
-            return f"\033[{codes}m{char}\033[0m"
-        return char
+        result = ""
+        if indexed_colours:
+            indexed_colours = ";".join(indexed_colours)
+            result += f"\033[{indexed_colours}m"
+        for code in rgb_colours:
+            result += code
+        result += char
+        if indexed_colours or rgb_colours:
+            result += "\033[m"
+        return result
 
     def display(self, frame):
         sys.stdout.write("\x1b[2J\x1b[H")  # Clear screen
