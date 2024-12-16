@@ -265,19 +265,18 @@ class App:
             progress = play_icon
             remaining -= 1
         remaining = "-" * remaining
-        sys.stdout.write("\n")
+        bar = f"\n[{progress}{remaining}]"
         if self.header:
             percent = int(self.bytes_processed / self.total_bytes * 100)
-            sys.stdout.write(f"{percent}% loaded ...")
-        sys.stdout.write(f"\n[{progress}{remaining}]")
+            loading = f"{percent}%"
+            bar = bar[:-len(loading)-1] + loading + "]"
+        sys.stdout.write(bar)
         timecap = ""
         if self.has_timecap:
             timecap = " [Timecap]"
         sys.stdout.write(
             f"\n{dt} - {elapsed} - {self.current_frame} / {self.total_frames} frames ({self.speed}X speed){timecap}"
         )
-        play = "Pause" if self.state == "play" else "Play"
-        sys.stdout.write(f"\n[q Quit] [<space> {play}] [lL +1/10 Next] [hH -1/10 Prev] [jk Speed] [c Timecap]")
         sys.stdout.flush()
 
     def render(self):
@@ -353,8 +352,8 @@ class App:
         sys.stdout.flush()
 
     def setup_terminal(self):
-        terminal_size = shutil.get_terminal_size((80, 24 + 4))  # 4 UI rows
-        width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - 4)
+        terminal_size = shutil.get_terminal_size((80, 24 + 2))  # 2 UI rows
+        width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - 2)
         self.screen = pyte.Screen(width, height)
         self.stream = CustomStream(self.screen)
 
