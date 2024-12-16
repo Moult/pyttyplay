@@ -193,6 +193,8 @@ class App:
         while True:
             os.set_blocking(sys.stdin.fileno(), False)
             if key := sys.stdin.read(1):
+                if key == '\x1b':
+                    key += sys.stdin.read(5)
                 self.on_press(key)
             os.set_blocking(sys.stdin.fileno(), True)
             self.load()
@@ -404,19 +406,19 @@ class App:
                 self.state = "play" if self.state == "pause" else "pause"
             elif key == "q":
                 self.state = "quit"
-            elif key == "l":
+            elif key in ("l", "\x1b[C"):
                 self.seek(delta=1 * ceil(self.speed))
-            elif key == "L":
+            elif key in ("L", "\x1b[1;2C"):
                 self.seek(delta=10 * ceil(self.speed))
-            elif key == "h":
+            elif key in ("h", "\x1b[D"):
                 self.seek(delta=-1 * ceil(self.speed))
-            elif key == "H":
+            elif key in ("H", "\x1b[1;2D"):
                 self.seek(delta=-10 * ceil(self.speed))
             elif key == "c":
                 self.has_timecap = not self.has_timecap
-            elif key == "j":
+            elif key in ("j", "\x1b[B"):
                 self.multiply_speed(0.5)
-            elif key == "k":
+            elif key in ("k", "\x1b[A"):
                 self.multiply_speed(2)
         except:
             pass
