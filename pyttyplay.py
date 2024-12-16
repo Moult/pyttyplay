@@ -211,11 +211,11 @@ class App:
                     duration = 1
                 duration /= self.speed
                 if time.time() - self.current_frame_time >= duration:
-                    self.seek(delta=1)
+                    self.seek(delta=1, pause=0)
             if not self.header:
                 time.sleep(min(self.timestep, 50) / 1000000)
 
-    def seek(self, frame=0, delta=0):
+    def seek(self, frame=0, delta=0, pause=0.5):
         previous_frame = self.current_frame
         if delta:
             self.current_frame += delta
@@ -226,7 +226,10 @@ class App:
         elif self.current_frame < 1:
             self.current_frame = 1
         if self.current_frame != previous_frame:
-            self.current_frame_time = time.time()
+            # After seeking (e.g. due to hotkey) a pause lets us wait to detect
+            # new keypresses (of which the keypress signal is slower than the
+            # frame duration) and reorient the viewer to the new frame.
+            self.current_frame_time = time.time() + pause
             self.is_dirty = True
 
     def show_ui(self):
