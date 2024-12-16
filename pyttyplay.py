@@ -164,9 +164,10 @@ class App:
 
         self.file = open(self.filepath, "rb")
         self.i = 0
-        self.total_bytes = os.stat(self.filepath).st_size
         self.bytes_processed = 0
         self.timestep = timestep
+        self.total_bytes = os.stat(self.filepath).st_size
+        self.header = self.read_header()
 
         self.width = width
         self.height = height
@@ -175,7 +176,6 @@ class App:
         self.current_frame_time = 0
         self.speed = 1
         self.has_timecap = True
-        self.is_loaded = False
         self.cache = []
         self.current_frame = 1
         self.total_frames = 0
@@ -211,7 +211,8 @@ class App:
                 duration /= self.speed
                 if time.time() - self.current_frame_time >= duration:
                     self.seek(delta=1)
-            time.sleep(self.timestep / 1000000)
+            if not self.header:
+                time.sleep(min(self.timestep, 50) / 1000000)
 
     def seek(self, frame=0, delta=0):
         previous_frame = self.current_frame
@@ -258,7 +259,7 @@ class App:
             remaining -= 1
         remaining = "-" * remaining
         sys.stdout.write("\n")
-        if not self.is_loaded:
+        if self.header:
             percent = int(self.bytes_processed / self.total_bytes * 100)
             sys.stdout.write(f"{percent}% loaded ...")
         sys.stdout.write(f"\n[{progress}{remaining}]")
@@ -279,6 +280,23 @@ class App:
         total_columns = self.screen.columns
         lines = [" " * total_columns] * total_lines
         for y, row in self.screen.buffer.items():
+            line = [" "] * total_columns
+            for x, cell in row.items():
+                line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
+            lines[y] = "".join(line)
+        return "\n".join(lines)
+
+    def copy_buffer(self):
+        return (
+            self.screen.cursor.x,
+            self.screen.cursor.y,
+            {y: {x: cell for x, cell in row.items()} for y, row in self.screen.buffer.items()},
+        )
+
+    def render_buffer(self, cursor_x, cursor_y, buffer):
+        total_columns = self.screen.columns
+        lines = [" " * total_columns] * self.screen.lines
+        for y, row in buffer.items():
             line = [" "] * total_columns
             for x, cell in row.items():
                 line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
@@ -324,7 +342,7 @@ class App:
 
     def display(self, frame):
         sys.stdout.write("\x1b[2J\x1b[H")  # Clear screen
-        sys.stdout.write(self.cache[frame - 1][1])
+        sys.stdout.write(self.render_buffer(*self.cache[frame - 1][1]))
         sys.stdout.flush()
 
     def setup_terminal(self):
@@ -333,33 +351,41 @@ class App:
         self.screen = pyte.Screen(width, height)
         self.stream = CustomStream(self.screen)
 
-    def load(self):
-        if self.is_loaded:
-            return
+    def read_header(self):
         seconds = int.from_bytes(self.file.read(4), byteorder="little")
         useconds = int.from_bytes(self.file.read(4), byteorder="little")
         length = int.from_bytes(self.file.read(4), byteorder="little")
-        seconds += useconds / 1000000
-        if self.i % 200 == 0:
+        self.bytes_processed += 12
+        if length:
+            return (seconds + useconds / 1000000, length)
+
+    def load(self):
+        if not self.header:
+            return
+        timestamp, length = self.header
+        if self.i % 500 == 0:
             self.is_dirty = True
-        payload = self.file.read(length)
-        self.bytes_processed += 12 + length
-        if not payload:
-            self.is_loaded = True
+        self.bytes_processed += length
+        if not (payload := self.file.read(length)):
+            self.header = None
             self.is_dirty = True
             return
-        self.stream.feed(payload.decode("cp437"))
-        # stream.feed(payload.decode("ascii"))
-        # stream.feed(payload.decode("utf8"))
-        if self.i != 0:
-            duration = seconds - self.cache[-1][0]
-            if duration > (self.timestep / 1000000):  # Merge frames
-                self.cache[-1][2] = duration
-                self.cache.append([seconds, self.render(), 0])
-            else:
-                self.cache[-1] = [seconds, self.render(), 0]
+        try:
+            payload = payload.decode("utf8")
+        except:
+            payload = payload.decode("cp437")
+        self.stream.feed(payload)
+        self.header = self.read_header()
+        if self.header:
+            duration = self.header[0] - timestamp
+            if self.i == 0 or duration >= (self.timestep / 1000000):
+                self.cache.append([timestamp, self.copy_buffer(), duration])
+                # self.cache.append([timestamp, self.render(), duration])
         else:
-            self.cache.append([seconds, self.render(), 0])
+            self.cache.append([timestamp, self.copy_buffer(), 0])
+            self.header = None
+            self.is_dirty = True
+            return
         self.i += 1
         self.total_frames = len(self.cache)
 
@@ -400,7 +426,7 @@ parser = argparse.ArgumentParser(prog="pyttyplay", description="A simple ttyrec 
 parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
 parser.add_argument("--size", "-s", help="WxH. Defaults to the active terminal size. E.g. 80x24")
 parser.add_argument(
-    "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 50.", default=50
+    "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 100.", default=100
 )
 args = parser.parse_args()
 size = args.size
@@ -411,7 +437,7 @@ if size:
         width, height = int(width), int(height)
     except:
         pass
-timestep = 50
+timestep = 100
 try:
     timestep = int(args.timestep)
 except:
