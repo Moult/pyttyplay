@@ -168,6 +168,7 @@ class App:
         self.timestep = timestep
         self.total_bytes = os.stat(self.filepath).st_size
         self.header = self.read_header()
+        self.truncated_payload = None
 
         self.width = width
         self.height = height
@@ -370,11 +371,15 @@ class App:
             self.header = None
             self.is_dirty = True
             return
+        if self.truncated_payload:
+            payload = self.truncated_payload + payload
         try:
             payload = payload.decode("utf8")
-        except:
-            payload = payload.decode("cp437")
-        self.stream.feed(payload)
+            self.truncated_payload = None
+            self.stream.feed(payload)
+        except UnicodeDecodeError:
+            # Probably the payload is split halfway
+            self.truncated_payload = payload
         self.header = self.read_header()
         if self.header:
             duration = self.header[0] - timestamp
