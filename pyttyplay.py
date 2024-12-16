@@ -1,13 +1,13 @@
 import re
 import os
 import sys
+import tty
 import time
 import pyte
 import shutil
 import tempfile
 import datetime
 import argparse
-import tty
 from math import ceil
 
 # Use msvcrt on Windows
@@ -49,6 +49,12 @@ DEC_SPECIAL_GRAPHICS = {
     "~": "·",
 }
 
+E_REPEAT = re.compile("([0-9]*?)b")
+E_SCROLL_REGION = re.compile("([0-9]+);([0-9]+)r")
+E_SCROLL_UP = re.compile("([0-9]*)S")
+E_SCROLL_DOWN = re.compile("([0-9]*)T")
+E_SET_COLOUR = re.compile("([0-9]+);rgb:(.{8})")
+
 
 class CustomStream(pyte.Stream):
     def __init__(self, screen):
@@ -67,7 +73,7 @@ class CustomStream(pyte.Stream):
             elif data[i : i + 3] == "\x1b(B":
                 self.dec_mode = False
                 i += 3
-            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*?)b", data[i + 2 : i + 6])):
+            elif data[i : i + 2] == "\x1b[" and (match := E_REPEAT.match(data[i + 2 : i + 6])):
                 # pyte doesn't handle repeat sequences https://github.com/selectel/pyte/issues/184
                 length = match[1]
                 for j in range(int(length)):
@@ -78,14 +84,14 @@ class CustomStream(pyte.Stream):
                 self.previous_char = dec_char
                 super().feed(dec_char)
                 i += 1
-            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]+);([0-9]+)r", data[i + 2 : i + 10])):
+            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_REGION.match(data[i + 2 : i + 10])):
                 # pyte doesn't support scroll region https://github.com/selectel/pyte/issues/186
                 self.scroll_region = tuple(int(x) for x in match.groups())
                 i += len(match[0]) + 2
-            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)S", data[i + 2 : i + 6])):  # Up
+            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_UP.match(data[i + 2 : i + 6])):  # Up
                 self.scroll_up(int(match[1] or 1))
                 i += len(match[0]) + 2
-            elif data[i : i + 2] == "\x1b[" and (match := re.match("([0-9]*)T", data[i + 2 : i + 6])):
+            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_DOWN.match(data[i + 2 : i + 6])):
                 self.scroll_down(int(match[1] or 1))
                 i += len(match[0]) + 2
             elif data[i] == "\n" and self.listener.cursor.y + 1 == self.scroll_region[1]:
@@ -97,7 +103,7 @@ class CustomStream(pyte.Stream):
             elif data[i : i + 3] == "\x1b[r":
                 self.scroll_region = [1, self.listener.lines]
                 i += 3
-            elif data[i : i + 4] == "\x1b]4;" and (match := re.match("([0-9]+);rgb:(.{8})", data[i + 4 : i + 20])):
+            elif data[i : i + 4] == "\x1b]4;" and (match := E_SET_COLOUR.match(data[i + 4 : i + 20])):
                 # pyte doesn't handle colour pallettes https://github.com/selectel/pyte/issues/50
                 # TODO: handle resetting pallette.
                 index = int(match[1])
