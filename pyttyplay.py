@@ -136,7 +136,7 @@ class CustomStream(pyte.Stream):
 
 
 class App:
-    def __init__(self, filepath, width=None, height=None, timestep=None):
+    def __init__(self, filepath, width=None, height=None, timestep=None, encoding=None):
         self.temp_files = []
 
         if "://" in filepath:
@@ -166,6 +166,7 @@ class App:
         self.i = 0
         self.bytes_processed = 0
         self.timestep = timestep
+        self.encoding = encoding
         self.total_bytes = os.stat(self.filepath).st_size
         self.header = self.read_header()
         self.truncated_payload = None
@@ -379,7 +380,7 @@ class App:
         if self.truncated_payload:
             payload = self.truncated_payload + payload
         try:
-            payload = payload.decode("utf8")
+            payload = payload.decode(self.encoding)
             self.truncated_payload = None
             self.stream.feed(payload)
         except UnicodeDecodeError:
@@ -435,6 +436,7 @@ class App:
 parser = argparse.ArgumentParser(prog="pyttyplay", description="A simple ttyrec player tailored for NetHack")
 parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
 parser.add_argument("--size", "-s", help="WxH. Defaults to the active terminal size. E.g. 80x24")
+parser.add_argument("--encoding", "-e", help="Defaults to utf8. Try cp437 if you have problems.", default="utf8")
 parser.add_argument(
     "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 100.", default=100
 )
@@ -452,4 +454,4 @@ try:
     timestep = int(args.timestep)
 except:
     pass
-App(args.filepath, width=width, height=height, timestep=timestep).run()
+App(args.filepath, width=width, height=height, timestep=timestep, encoding=args.encoding).run()
