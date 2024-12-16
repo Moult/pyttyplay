@@ -460,11 +460,22 @@ class App:
             self.speed = 0.25
 
 
-parser = argparse.ArgumentParser(prog="pyttyplay", description="A simple ttyrec player tailored for NetHack")
+description = """A simple ttyrec player tailored for NetHack. <Space> to toggle play / pause. <m> to toggle frame-based seek or time-based seek. <l> / <Right> to go forward, <h> or <Left> to rewind 1 frame or 1 second. <L> / <S-right> to go forward, <H> / <S-left> to rewind 10 frames or 5 seconds. <j> / <Down> to halve the speed. <k> / <Up> to double the speed. <c> to toggle capping durations between frames at 1 second.
+"""
+parser = argparse.ArgumentParser(prog="pyttyplay", description=description)
 parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
-parser.add_argument("--size", "-s", help="WxH. Defaults to the active terminal size. E.g. 80x24")
+parser.add_argument(
+    "--size",
+    "-s",
+    help="WxH. Defaults to the active terminal size. Ttyrec doesn't store the terminal size, so choose appropriately. E.g. 80x24",
+)
 parser.add_argument("--ui", help="Whether to show the UI.", action=argparse.BooleanOptionalAction, default=True)
-parser.add_argument("--encoding", "-e", help="Defaults to utf8. Try cp437 if you have problems.", default="utf8")
+parser.add_argument(
+    "--encoding",
+    "-e",
+    help="Defaults to utf8. Try cp437 if you have problems. Ttyrec files don't store encoding, so choose appropriately.",
+    default="utf8",
+)
 parser.add_argument(
     "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 100.", default=100
 )
