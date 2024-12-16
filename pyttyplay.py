@@ -180,10 +180,10 @@ class App:
         self.current_frame = 1
         self.total_frames = 0
         self.tz = datetime.timezone(datetime.timedelta())
-        self.fg_ansi = {v: k for k, v in pyte.graphics.FG_ANSI.items()}
-        self.bg_ansi = {v: k for k, v in pyte.graphics.BG_ANSI.items()}
-        self.fg_aixterm = {v: k for k, v in pyte.graphics.FG_AIXTERM.items()}
-        self.bg_aixterm = {v: k for k, v in pyte.graphics.BG_AIXTERM.items()}
+        self.fg = {v: k for k, v in pyte.graphics.FG_ANSI.items()}
+        self.bg = {v: k for k, v in pyte.graphics.BG_ANSI.items()}
+        self.fg.update({v: k for k, v in pyte.graphics.FG_AIXTERM.items()})
+        self.bg.update({v: k for k, v in pyte.graphics.BG_AIXTERM.items()})
 
     def run(self):
         tty.setcbreak(sys.stdin)
@@ -299,34 +299,28 @@ class App:
             bg = "white"
         indexed_colours = []
         rgb_colours = []
-        if code := self.fg_ansi.get(fg, self.fg_aixterm.get(fg, None)):
-            indexed_colours.append(str(code))
-        elif len(fg) == 6:
-            r, g, b = tuple(int(fg[i : i + 2], 16) for i in (0, 2, 4))
-            rgb_colours.append(f"\033[38;2;{r};{g};{b}m")
-
-        if code := self.bg_ansi.get(bg, self.bg_aixterm.get(bg, None)):
-            indexed_colours.append(str(code))
-        elif len(bg) == 6:
-            r, g, b = tuple(int(bg[i : i + 2], 16) for i in (0, 2, 4))
-            rgb_colours.append(f"\033[48;2;{r};{g};{b}m")
+        try:
+            indexed_colours.append(str(self.fg[fg]))
+        except:
+            rgb_colours.append(f"\033[38;2;{int(fg[0:2], 16)};{int(fg[2:4], 16)};{int(fg[4:6], 16)}m")
+        try:
+            indexed_colours.append(str(self.bg[bg]))
+        except:
+            rgb_colours.append(f"\033[48;2;{int(bg[0:2], 16)};{int(bg[2:4], 16)};{int(bg[4:6], 16)}m")
         if cell.bold:
             indexed_colours.append("1")
         if cell.italics:
             indexed_colours.append("3")
         if cell.underscore:
             indexed_colours.append("4")
-        char = cell.data or " "
-        result = ""
+        result = []
         if indexed_colours:
-            indexed_colours = ";".join(indexed_colours)
-            result += f"\033[{indexed_colours}m"
-        for code in rgb_colours:
-            result += code
-        result += char
+            result.append(f"\033[{';'.join(indexed_colours)}m")
+        result.extend(rgb_colours)
+        result.append(cell.data or " ")
         if indexed_colours or rgb_colours:
-            result += "\033[m"
-        return result
+            result.append("\033[m")
+        return "".join(result)
 
     def display(self, frame):
         sys.stdout.write("\x1b[2J\x1b[H")  # Clear screen
