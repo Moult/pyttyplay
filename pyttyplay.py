@@ -136,7 +136,7 @@ class CustomStream(pyte.Stream):
 
 
 class App:
-    def __init__(self, filepath, width=None, height=None, timestep=None, encoding=None):
+    def __init__(self, filepath, width=None, height=None, timestep=None, encoding=None, should_show_ui=True):
         self.temp_files = []
 
         if "://" in filepath:
@@ -171,6 +171,7 @@ class App:
         self.header = self.read_header()
         self.truncated_payload = None
 
+        self.should_show_ui = should_show_ui
         self.width = width
         self.height = height
         self.state = "play"
@@ -194,7 +195,7 @@ class App:
         while True:
             os.set_blocking(sys.stdin.fileno(), False)
             if key := sys.stdin.read(1):
-                if key == '\x1b':
+                if key == "\x1b":
                     key += sys.stdin.read(5)
                 self.on_press(key)
             os.set_blocking(sys.stdin.fileno(), True)
@@ -203,10 +204,12 @@ class App:
                 for t in self.temp_files:
                     t.close()
                 self.file.close()
+                sys.stdout.write("\x1b[?25h")  # Show cursor
                 sys.exit(0)
             if self.is_dirty:
                 self.display(self.current_frame)
-                self.show_ui()
+                if self.should_show_ui:
+                    self.show_ui()
                 self.is_dirty = False
             if self.state == "play":
                 duration = self.cache[self.current_frame - 1][2]
@@ -269,7 +272,7 @@ class App:
         if self.header:
             percent = int(self.bytes_processed / self.total_bytes * 100)
             loading = f"{percent}%"
-            bar = bar[:-len(loading)-1] + loading + "]"
+            bar = bar[: -len(loading) - 1] + loading + "]"
         sys.stdout.write(bar)
         timecap = ""
         if self.has_timecap:
@@ -348,12 +351,14 @@ class App:
 
     def display(self, frame):
         sys.stdout.write("\x1b[2J\x1b[H")  # Clear screen
+        sys.stdout.write("\x1b[?25l")  # Hide cursor
         sys.stdout.write(self.render_buffer(*self.cache[frame - 1][1]))
         sys.stdout.flush()
 
     def setup_terminal(self):
-        terminal_size = shutil.get_terminal_size((80, 24 + 2))  # 2 UI rows
-        width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - 2)
+        ui_lines = 2 if self.should_show_ui else 0
+        terminal_size = shutil.get_terminal_size((80, 24 + ui_lines))
+        width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - ui_lines)
         self.screen = pyte.Screen(width, height)
         self.stream = CustomStream(self.screen)
 
@@ -435,6 +440,7 @@ class App:
 parser = argparse.ArgumentParser(prog="pyttyplay", description="A simple ttyrec player tailored for NetHack")
 parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
 parser.add_argument("--size", "-s", help="WxH. Defaults to the active terminal size. E.g. 80x24")
+parser.add_argument("--ui", help="Whether to show the UI.", action=argparse.BooleanOptionalAction, default=True)
 parser.add_argument("--encoding", "-e", help="Defaults to utf8. Try cp437 if you have problems.", default="utf8")
 parser.add_argument(
     "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 100.", default=100
@@ -453,4 +459,4 @@ try:
     timestep = int(args.timestep)
 except:
     pass
-App(args.filepath, width=width, height=height, timestep=timestep, encoding=args.encoding).run()
+App(args.filepath, width=width, height=height, timestep=timestep, encoding=args.encoding, should_show_ui=args.ui).run()
