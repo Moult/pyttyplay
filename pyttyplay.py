@@ -171,6 +171,7 @@ class App:
         self.header = self.read_header()
         self.truncated_payload = None
 
+        self.mode = "frame"
         self.should_show_ui = should_show_ui
         self.width = width
         self.height = height
@@ -216,17 +217,25 @@ class App:
                 if self.has_timecap and duration > 1:
                     duration = 1
                 duration /= self.speed
-                if time.time() - self.current_frame_time >= duration:
-                    self.seek(delta=1, pause=0)
+                if time.time() - self.current_frame_time >= duration and self.current_frame < self.total_frames:
+                    self.seek()
             if not self.header:
                 time.sleep(min(self.timestep, 50) / 1000000)
 
-    def seek(self, frame=0, delta=0, pause=0.5):
+    def seek(self, delta=0, pause=0.5):
         previous_frame = self.current_frame
         if delta:
-            self.current_frame += delta
+            if self.mode == "frame":
+                self.current_frame += delta
+            elif self.mode == "time":
+                total_duration = 0
+                while total_duration < abs(delta):
+                    total_duration += self.cache[self.current_frame - 1][2]
+                    self.current_frame += 1 if delta > 0 else -1
+                    if self.current_frame > self.total_frames or self.current_frame < 1:
+                        break
         else:
-            self.current_frame = frame
+            self.current_frame += 1
         if self.current_frame > self.total_frames:
             self.current_frame = self.total_frames
         elif self.current_frame < 1:
@@ -235,30 +244,27 @@ class App:
             # After seeking (e.g. due to hotkey) a pause lets us wait to detect
             # new keypresses (of which the keypress signal is slower than the
             # frame duration) and reorient the viewer to the new frame.
-            self.current_frame_time = time.time() + pause
+            self.current_frame_time = time.time() + (pause if delta else 0)
             self.is_dirty = True
 
     def show_ui(self):
-        seconds = self.cache[self.current_frame - 1][0]
+        timestamp = self.cache[self.current_frame - 1][0]
         dt = (
-            datetime.datetime.fromtimestamp(seconds, tz=self.tz)
+            datetime.datetime.fromtimestamp(timestamp, tz=self.tz)
             .isoformat()
             .split("+")[0]
             .split(".")[0]
             .replace("T", " ")
         )
-        elapsed = int(seconds - self.cache[0][0])
-        h, m, s = str(datetime.timedelta(seconds=elapsed)).split(":")
-        elapsed = ""
-        if h != "0":
-            elapsed = f"{h}h "
-        if m != "00":
-            elapsed += f"{m}m "
-        if s == "00":
-            s = "0"
-        elapsed += f"{s}s elapsed"
-
-        progress = int(self.current_frame / self.total_frames * 80)
+        elapsed_time = int(timestamp - self.cache[0][0])
+        if self.mode == "frame":
+            progress = int(self.current_frame / self.total_frames * 80)
+            mode = "[Frame]"
+            elapsed = f"{self.current_frame} / {self.total_frames} frames"
+        elif self.mode == "time":
+            progress = int(elapsed_time / self.total_time * 80)
+            mode = "[Time]"
+            elapsed = f"{self.format_duration(elapsed_time)} / {self.format_duration(self.total_time)}"
         remaining = 80 - progress
         progress = "=" * progress
         play_icon = ">" if self.state == "play" else "|"
@@ -277,10 +283,24 @@ class App:
         timecap = ""
         if self.has_timecap:
             timecap = " [Timecap]"
-        sys.stdout.write(
-            f"\n{dt} - {elapsed} - {self.current_frame} / {self.total_frames} frames ({self.speed}X speed){timecap}"
-        )
+        sys.stdout.write(f"\n{dt} - {elapsed} - [{self.speed}X speed] {mode}{timecap}")
         sys.stdout.flush()
+
+    def format_duration(self, seconds):
+        h, m, s = str(datetime.timedelta(seconds=seconds)).split(".")[0].split(":")
+        elapsed = ""
+        if h != "0":
+            if h.startswith("0"):
+                h = h[1:]
+            elapsed = f"{h}h "
+        if m != "00":
+            if m.startswith("0"):
+                m = m[1:]
+            elapsed += f"{m}m "
+        if s.startswith("0"):
+            s = s[1:]
+        elapsed += f"{s}s"
+        return elapsed
 
     def render(self):
         cursor_x = self.screen.cursor.x
@@ -403,6 +423,7 @@ class App:
             return
         self.i += 1
         self.total_frames = len(self.cache)
+        self.total_time = timestamp - self.cache[0][0]
 
     def on_press(self, key):
         self.is_dirty = True
@@ -414,17 +435,19 @@ class App:
             elif key in ("l", "\x1b[C"):
                 self.seek(delta=1 * ceil(self.speed))
             elif key in ("L", "\x1b[1;2C"):
-                self.seek(delta=10 * ceil(self.speed))
+                self.seek(delta=(10 if self.mode == "frame" else 5) * ceil(self.speed))
             elif key in ("h", "\x1b[D"):
                 self.seek(delta=-1 * ceil(self.speed))
             elif key in ("H", "\x1b[1;2D"):
-                self.seek(delta=-10 * ceil(self.speed))
-            elif key == "c":
-                self.has_timecap = not self.has_timecap
+                self.seek(delta=-(10 if self.mode == "frame" else 5) * ceil(self.speed))
             elif key in ("j", "\x1b[B"):
                 self.multiply_speed(0.5)
             elif key in ("k", "\x1b[A"):
                 self.multiply_speed(2)
+            elif key == "c":
+                self.has_timecap = not self.has_timecap
+            elif key == "m":
+                self.mode = "time" if self.mode == "frame" else "frame"
         except:
             pass
 
