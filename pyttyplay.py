@@ -470,14 +470,22 @@ class App:
                 self.state = "play" if self.state == "pause" else "pause"
             elif key == "q":
                 self.state = "quit"
+            elif key == "\x1b[H":
+                self.seek(delta=-self.current_frame)
+            elif key == "\x1b[F":
+                self.seek(delta=self.total_frames)
             elif key in ("l", "\x1b[C"):
                 self.seek(delta=1 * ceil(self.speed))
             elif key in ("L", "\x1b[1;2C"):
                 self.seek(delta=(10 if self.mode == "frame" else 5) * ceil(self.speed))
+            elif key == "\x1b[6~":
+                self.seek(delta=(100 if self.mode == "frame" else 30) * ceil(self.speed))
             elif key in ("h", "\x1b[D"):
                 self.seek(delta=-1 * ceil(self.speed))
             elif key in ("H", "\x1b[1;2D"):
                 self.seek(delta=-(10 if self.mode == "frame" else 5) * ceil(self.speed))
+            elif key == "\x1b[5~":
+                self.seek(delta=-(100 if self.mode == "frame" else 30) * ceil(self.speed))
             elif key in ("j", "J", "\x1b[B"):
                 self.multiply_speed(0.5)
             elif key in ("k", "K", "\x1b[A"):
@@ -498,9 +506,38 @@ class App:
             self.speed = 0.25
 
 
-description = """A simple ttyrec player tailored for NetHack. <Space> to toggle play / pause. <m> to toggle frame-based seek or time-based seek. <l> / <Right> to go forward, <h> or <Left> to rewind 1 frame or 1 second. <L> / <S-right> to go forward, <H> / <S-left> to rewind 10 frames or 5 seconds. <j> / <Down> to halve the speed. <k> / <Up> to double the speed. <c> to toggle capping durations between frames at 1 second.
+description = """A simple ttyrec player tailored for NetHack.
+
+<Space>   Toggle play / pause
+m         Toggle frame-based seek or time-based seek
+c         Toggle capping frame durations at 1 second max
+q         Quit
+
+<Home>    Jump to first frame
+<End>     Jump to last frame
+
+l         +1 frame / +1 second (multiplied by speed)
+<Right>   +1 frame / +1 second (multiplied by speed)
+L         +10 frames / +5 seconds (multiplied by speed)
+<S-Right> +10 frames / +5 seconds (multiplied by speed)
+<PgDn>    +100 frames / +30 seconds (multiplied by speed)
+
+h         +1 frame / +1 second (multiplied by speed)
+<Left>    +1 frame / +1 second (multiplied by speed)
+H         +10 frames / +5 seconds (multiplied by speed)
+<S-Left>  +10 frames / +5 seconds (multiplied by speed)
+<PgUp>    +100 frames / +30 seconds (multiplied by speed)
+
+j         Speed / 2
+J         Speed / 2
+<Down>    Speed / 2
+k         Speed * 2
+K         Speed * 2
+<Up>      Speed * 2
 """
-parser = argparse.ArgumentParser(prog="pyttyplay", description=description)
+parser = argparse.ArgumentParser(
+    prog="pyttyplay", description=description, formatter_class=argparse.RawDescriptionHelpFormatter
+)
 parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
 parser.add_argument(
     "--size",
