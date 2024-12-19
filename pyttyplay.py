@@ -1,5 +1,6 @@
 import re
 import os
+import gc
 import sys
 import tty
 import time
@@ -529,4 +530,5 @@ try:
     timestep = int(args.timestep)
 except:
     pass
+gc.set_threshold(0)
 App(args.filepath, width=width, height=height, timestep=timestep, encoding=args.encoding, should_show_ui=args.ui).run()
