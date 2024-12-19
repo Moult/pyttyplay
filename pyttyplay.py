@@ -330,8 +330,14 @@ class App:
         for y, row in buffer.items():
             line = [" "] * total_columns
             for x, cell in row.items():
-                line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
-            lines[y] = "".join(line)
+                try:
+                    line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
+                except IndexError:
+                    pass
+            try:
+                lines[y] = "".join(line)
+            except IndexError:
+                pass
         return "\n".join(lines)
 
     def render_cell(self, cell, is_cursor=False):
