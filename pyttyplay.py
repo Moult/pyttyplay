@@ -85,22 +85,18 @@ class CustomStream(pyte.Stream):
                 super().feed(dec_char)
                 i += 1
             elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_REGION.match(data[i + 2 : i + 10])):
-                # pyte doesn't support scroll region https://github.com/selectel/pyte/issues/186
+                # pyte doesn't support scroll up / down https://github.com/selectel/pyte/issues/186
+                self.listener.set_margins(*tuple(int(x) for x in match.groups()))
                 self.scroll_region = tuple(int(x) for x in match.groups())
                 i += len(match[0]) + 2
-            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_UP.match(data[i + 2 : i + 6])):  # Up
+            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_UP.match(data[i + 2 : i + 6])):
                 self.scroll_up(int(match[1] or 1))
                 i += len(match[0]) + 2
             elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_DOWN.match(data[i + 2 : i + 6])):
                 self.scroll_down(int(match[1] or 1))
                 i += len(match[0]) + 2
-            elif data[i] == "\n" and self.listener.cursor.y + 1 == self.scroll_region[1]:
-                self.scroll_up(1)
-                i += 1
-            elif data[i : i + 2] == "\x1bM" and self.listener.cursor.y + 1 == self.scroll_region[0]:
-                self.scroll_down(1)
-                i += 2
             elif data[i : i + 3] == "\x1b[r":
+                self.listener.set_margins(None, None)
                 self.scroll_region = [1, self.listener.lines]
                 i += 3
             elif data[i : i + 4] == "\x1b]4;" and (match := E_SET_COLOUR.match(data[i + 4 : i + 20])):
