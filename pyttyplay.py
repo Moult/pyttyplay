@@ -163,9 +163,12 @@ class App:
         self.bytes_processed = 0
         self.timestep = timestep
         self.encoding = encoding
+        self.truncated_payload = None
+        if not encoding:
+            self.possible_encodings = ["utf8", "cp437", "ascii"]
+            self.guess_encoding()
         self.total_bytes = os.stat(self.filepath).st_size
         self.header = self.read_header()
-        self.truncated_payload = None
 
         self.mode = "frame"
         self.should_show_ui = should_show_ui
@@ -185,6 +188,13 @@ class App:
         self.fg.update({v: k for k, v in pyte.graphics.FG_AIXTERM.items()})
         self.bg.update({v: k for k, v in pyte.graphics.BG_AIXTERM.items()})
 
+    def quit(self):
+        for t in self.temp_files:
+            t.close()
+        self.file.close()
+        sys.stdout.write("\x1b[?25h")  # Show cursor
+        sys.exit(0)
+
     def run(self):
         tty.setcbreak(sys.stdin)
         self.setup_terminal()
@@ -198,11 +208,7 @@ class App:
             os.set_blocking(sys.stdin.fileno(), True)
             self.load()
             if self.state == "quit":
-                for t in self.temp_files:
-                    t.close()
-                self.file.close()
-                sys.stdout.write("\x1b[?25h")  # Show cursor
-                sys.exit(0)
+                self.quit()
             if self.is_dirty:
                 self.display(self.current_frame)
                 if self.should_show_ui:
@@ -386,6 +392,35 @@ class App:
         if length:
             return (seconds + useconds / 1000000, length)
 
+    def guess_encoding(self):
+        self.encoding = self.possible_encodings.pop(0)
+        self.header = self.read_header()
+        errors = 0
+        while self.header:
+            _, length = self.header
+            if not (payload := self.file.read(length)):
+                break
+            if self.truncated_payload:
+                payload = self.truncated_payload + payload
+            try:
+                payload = payload.decode(self.encoding)
+                errors = 0
+                self.truncated_payload = None
+            except UnicodeDecodeError:
+                # Probably the payload is split halfway
+                self.truncated_payload = payload
+                errors += 1
+                if errors > 3:
+                    if not self.possible_encodings:
+                        print("No suitable encoding found. If you know what it is, specify it with `-e`")
+                        self.quit()
+                    self.encoding = self.possible_encodings.pop(0)
+                    errors = 0
+                    self.file.seek(0)
+            self.header = self.read_header()
+        self.file.seek(0)
+        self.bytes_processed = 0
+
     def load(self):
         if not self.header:
             return
@@ -436,9 +471,9 @@ class App:
                 self.seek(delta=-1 * ceil(self.speed))
             elif key in ("H", "\x1b[1;2D"):
                 self.seek(delta=-(10 if self.mode == "frame" else 5) * ceil(self.speed))
-            elif key in ("j", "\x1b[B"):
+            elif key in ("j", "J", "\x1b[B"):
                 self.multiply_speed(0.5)
-            elif key in ("k", "\x1b[A"):
+            elif key in ("k", "K", "\x1b[A"):
                 self.multiply_speed(2)
             elif key == "c":
                 self.has_timecap = not self.has_timecap
@@ -469,8 +504,7 @@ parser.add_argument("--ui", help="Whether to show the UI.", action=argparse.Bool
 parser.add_argument(
     "--encoding",
     "-e",
-    help="Defaults to utf8. Try cp437 if you have problems. Ttyrec files don't store encoding, so choose appropriately.",
-    default="utf8",
+    help="Defaults to autodetecting in the order utf8, cp437, then ascii. Ttyrec files don't store encoding, so choose appropriately.",
 )
 parser.add_argument(
     "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 100.", default=100
