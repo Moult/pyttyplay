@@ -15,41 +15,6 @@ from math import ceil
 # https://stackoverflow.com/questions/2408560/non-blocking-console-input
 
 
-DEC_SPECIAL_GRAPHICS = {
-    "_": " ",
-    "`": "◆",
-    "a": "▒",
-    "b": "\t",
-    "c": "\f",
-    "d": "\r",
-    "e": "\n",
-    "f": "°",
-    "g": "±",
-    "h": "\025",
-    "i": "\v",
-    "j": "┘",
-    "k": "┐",
-    "l": "┌",
-    "m": "└",
-    "n": "┼",
-    "o": "⎺",
-    "p": "⎻",
-    "q": "─",
-    "r": "⎼",
-    "s": "⎽",
-    "t": "├",
-    "u": "┤",
-    "v": "┴",
-    "w": "┬",
-    "x": "│",
-    "y": "≤",
-    "z": "≥",
-    "{": "π",
-    "|": "≠",
-    "}": "£",
-    "~": "·",
-}
-
 E_REPEAT = re.compile("([0-9]*?)b")
 E_SCROLL_REGION = re.compile("([0-9]+);([0-9]+)r")
 E_SCROLL_UP = re.compile("([0-9]*)S")
@@ -60,7 +25,6 @@ E_SET_COLOUR = re.compile("([0-9]+);rgb:(.{8})")
 class CustomStream(pyte.Stream):
     def __init__(self, screen):
         super().__init__(screen)
-        self.dec_mode = False
         self.scroll_region = [1, screen.lines]
         self.previous_char = ""
 
@@ -68,23 +32,12 @@ class CustomStream(pyte.Stream):
         i = 0
         total_data = len(data)
         while i < total_data:
-            if data[i : i + 3] == "\x1b(0":
-                self.dec_mode = True
-                i += 3
-            elif data[i : i + 3] == "\x1b(B":
-                self.dec_mode = False
-                i += 3
-            elif data[i : i + 2] == "\x1b[" and (match := E_REPEAT.match(data[i + 2 : i + 6])):
+            if data[i : i + 2] == "\x1b[" and (match := E_REPEAT.match(data[i + 2 : i + 6])):
                 # pyte doesn't handle repeat sequences https://github.com/selectel/pyte/issues/184
                 length = match[1]
                 for j in range(int(length)):
                     super().feed(self.previous_char)
                 i += len(length) + 3
-            elif self.dec_mode and self._taking_plain_text and (dec_char := DEC_SPECIAL_GRAPHICS.get(data[i])):
-                # pyte doesn't support DEC graphics https://github.com/selectel/pyte/issues/182
-                self.previous_char = dec_char
-                super().feed(dec_char)
-                i += 1
             elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_REGION.match(data[i + 2 : i + 10])):
                 # pyte doesn't support scroll up / down https://github.com/selectel/pyte/issues/186
                 self.listener.set_margins(*tuple(int(x) for x in match.groups()))
@@ -390,6 +343,8 @@ class App:
         width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - ui_lines)
         self.screen = pyte.Screen(width, height)
         self.stream = CustomStream(self.screen)
+        # pyte DEC graphics https://github.com/selectel/pyte/issues/182
+        self.stream.use_utf8 = False
 
     def read_header(self):
         seconds = int.from_bytes(self.file.read(4), byteorder="little")
