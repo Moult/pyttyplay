@@ -322,7 +322,7 @@ class App:
         return (
             self.screen.cursor.x,
             self.screen.cursor.y,
-            {y: {x: cell for x, cell in row.items()} for y, row in self.screen.buffer.items()},
+            {y: dict(row) for y, row in self.screen.buffer.items()},
         )
 
     def render_buffer(self, cursor_x, cursor_y, buffer):
