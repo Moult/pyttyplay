@@ -1,4 +1,3 @@
-import re
 import os
 import gc
 import sys
@@ -13,76 +12,6 @@ from math import ceil
 
 # Use msvcrt on Windows
 # https://stackoverflow.com/questions/2408560/non-blocking-console-input
-
-
-E_REPEAT = re.compile("([0-9]*?)b")
-E_SCROLL_REGION = re.compile("([0-9]+);([0-9]+)r")
-E_SCROLL_UP = re.compile("([0-9]*)S")
-E_SCROLL_DOWN = re.compile("([0-9]*)T")
-E_SET_COLOUR = re.compile("([0-9]+);rgb:(.{8})")
-
-
-class CustomStream(pyte.Stream):
-    def __init__(self, screen):
-        super().__init__(screen)
-        self.scroll_region = [1, screen.lines]
-        self.previous_char = ""
-
-    def feed(self, data):
-        i = 0
-        total_data = len(data)
-        while i < total_data:
-            if data[i : i + 2] == "\x1b[" and (match := E_REPEAT.match(data[i + 2 : i + 6])):
-                # pyte doesn't handle repeat sequences https://github.com/selectel/pyte/issues/184
-                length = match[1]
-                for j in range(int(length)):
-                    super().feed(self.previous_char)
-                i += len(length) + 3
-            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_REGION.match(data[i + 2 : i + 10])):
-                # pyte doesn't support scroll up / down https://github.com/selectel/pyte/issues/186
-                self.listener.set_margins(*tuple(int(x) for x in match.groups()))
-                self.scroll_region = tuple(int(x) for x in match.groups())
-                i += len(match[0]) + 2
-            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_UP.match(data[i + 2 : i + 6])):
-                self.scroll_up(int(match[1] or 1))
-                i += len(match[0]) + 2
-            elif data[i : i + 2] == "\x1b[" and (match := E_SCROLL_DOWN.match(data[i + 2 : i + 6])):
-                self.scroll_down(int(match[1] or 1))
-                i += len(match[0]) + 2
-            elif data[i : i + 3] == "\x1b[r":
-                self.listener.set_margins(None, None)
-                self.scroll_region = [1, self.listener.lines]
-                i += 3
-            elif data[i : i + 4] == "\x1b]4;" and (match := E_SET_COLOUR.match(data[i + 4 : i + 20])):
-                # pyte doesn't handle colour pallettes https://github.com/selectel/pyte/issues/50
-                # TODO: handle resetting pallette.
-                index = int(match[1])
-                color = match[2].replace("/", "").lower()
-                if index > 15:
-                    pyte.graphics.FG_BG_256[index] = color
-                elif index > 7:  # Bright colors
-                    pyte.graphics.FG_AIXTERM[index + 82] = color
-                    pyte.graphics.BG_AIXTERM[index + 92] = color
-                else:
-                    pyte.graphics.FG_ANSI[index + 30] = color
-                    pyte.graphics.BG_ANSI[index + 40] = color
-                i += len(match[0]) + 4
-            else:
-                self.previous_char = data[i]
-                super().feed(data[i])
-                i += 1
-
-    def scroll_up(self, number):
-        for j in range(number):
-            for k in range(self.scroll_region[0] - 1, self.scroll_region[1] - 1):
-                self.listener.buffer[k] = self.listener.buffer[k + 1]
-            self.listener.buffer[self.scroll_region[1] - 1] = pyte.screens.StaticDefaultDict(self.listener.default_char)
-
-    def scroll_down(self, number):
-        for j in range(number):
-            for k in list(range(self.scroll_region[0] - 1, self.scroll_region[1] - 1))[::-1]:
-                self.listener.buffer[k + 1] = self.listener.buffer[k]
-            self.listener.buffer[self.scroll_region[0] - 1] = pyte.screens.StaticDefaultDict(self.listener.default_char)
 
 
 class App:
@@ -275,7 +204,7 @@ class App:
         return (
             self.screen.cursor.x,
             self.screen.cursor.y,
-            {y: dict(row) for y, row in self.screen.buffer.items()},
+            {y: dict(row) for y, row in self.screen._buffer.items()},
         )
 
     def render_buffer(self, cursor_x, cursor_y, buffer):
@@ -342,7 +271,7 @@ class App:
         terminal_size = shutil.get_terminal_size((80, 24 + ui_lines))
         width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - ui_lines)
         self.screen = pyte.Screen(width, height)
-        self.stream = CustomStream(self.screen)
+        self.stream = pyte.Stream(self.screen)
         # pyte DEC graphics https://github.com/selectel/pyte/issues/182
         self.stream.use_utf8 = False
 
