@@ -70,6 +70,7 @@ class App:
         self.bg = {v: k for k, v in pyte.graphics.BG_ANSI.items()}
         self.fg.update({v: k for k, v in pyte.graphics.FG_AIXTERM.items()})
         self.bg.update({v: k for k, v in pyte.graphics.BG_AIXTERM.items()})
+        self.bg["brightmagenta"] = self.bg["bfightmagenta"]
 
     def quit(self):
         for t in self.temp_files:
