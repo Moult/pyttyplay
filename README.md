@@ -1,6 +1,7 @@
 # pyttyplay
 
-This is a ttyrec player.
+This is a ttyrec player. See [website with screenshots /
+features](https://thinkmoult.com/pyttyplay-nethack-player.html).
 
 A special fork of pyte (Python terminal emulator) is required to run this. The
 fork includes optimisations from [this
