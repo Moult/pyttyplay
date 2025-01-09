@@ -15,7 +15,17 @@ from math import ceil
 
 
 class App:
-    def __init__(self, filepath, width=None, height=None, timestep=None, encoding=None, should_show_ui=True):
+    def __init__(
+        self,
+        filepath,
+        emulator_width=None,
+        emulator_height=None,
+        terminal_width=None,
+        terminal_height=None,
+        timestep=None,
+        encoding=None,
+        should_show_ui=True,
+    ):
         self.temp_files = []
 
         if "://" in filepath:
@@ -55,8 +65,14 @@ class App:
 
         self.mode = "frame"
         self.should_show_ui = should_show_ui
-        self.width = width
-        self.height = height
+        self.emulator_width = emulator_width or 500
+        self.emulator_height = emulator_height or 200
+        self.max_ttyrec_height = 0
+
+        terminal_size = shutil.get_terminal_size((80, 24))
+        self.terminal_width = terminal_width or terminal_size.columns
+        self.terminal_height = terminal_height or terminal_size.lines
+
         self.state = "play"
         self.is_dirty = True
         self.current_frame_time = 0
@@ -160,15 +176,21 @@ class App:
             progress = play_icon
             remaining -= 1
         remaining = "-" * remaining
-        bar = f"\n[{progress}{remaining}]"
+        bar = f"[{progress}{remaining}]"
         if self.header:
             percent = int(self.bytes_processed / self.total_bytes * 100)
             loading = f"{percent}%"
             bar = bar[: -len(loading) - 1] + loading + "]"
-        sys.stdout.write(bar)
         timecap = ""
         if self.has_timecap:
             timecap = " [Timecap]"
+        if self.terminal_height <= self.max_ttyrec_height + 2:
+            # Show UI overlapping on top of bottom two lines
+            sys.stdout.write(f"\x1b[{self.terminal_height-1};1H\x1b[2M")
+        else:
+            # Show UI on new line below existing output
+            sys.stdout.write("\n")
+        sys.stdout.write(bar)
         sys.stdout.write(f"\n{dt} - {elapsed} - [{self.speed}X speed] {mode}{timecap}")
         sys.stdout.flush()
 
@@ -202,6 +224,11 @@ class App:
         return "\n".join(lines)
 
     def copy_buffer(self):
+        try:
+            # We only autodetect height because it's cheap.
+            self.max_ttyrec_height = max(max(self.screen._buffer.keys()) + 1, self.max_ttyrec_height)
+        except:
+            pass
         return (
             self.screen.cursor.x,
             self.screen.cursor.y,
@@ -209,8 +236,8 @@ class App:
         )
 
     def render_buffer(self, cursor_x, cursor_y, buffer):
-        total_columns = self.screen.columns
-        lines = [" " * total_columns] * self.screen.lines
+        total_columns = min(self.terminal_width, self.emulator_width)
+        lines = [" " * total_columns] * min(self.terminal_height, self.max_ttyrec_height)
         for y, row in buffer.items():
             line = [" "] * total_columns
             for x, cell in row.items():
@@ -268,10 +295,7 @@ class App:
         sys.stdout.flush()
 
     def setup_terminal(self):
-        ui_lines = 2 if self.should_show_ui else 0
-        terminal_size = shutil.get_terminal_size((80, 24 + ui_lines))
-        width, height = self.width or terminal_size.columns, self.height or (terminal_size.lines - ui_lines)
-        self.screen = pyte.Screen(width, height)
+        self.screen = pyte.Screen(self.emulator_width, self.emulator_height)
         self.stream = pyte.Stream(self.screen)
         # pyte DEC graphics https://github.com/selectel/pyte/issues/182
         self.stream.use_utf8 = False
@@ -379,6 +403,8 @@ class App:
                 self.has_timecap = not self.has_timecap
             elif key == "m":
                 self.mode = "time" if self.mode == "frame" else "frame"
+            elif key == "i":
+                self.should_show_ui = not self.should_show_ui
         except:
             pass
 
@@ -396,10 +422,8 @@ description = """A simple ttyrec player tailored for NetHack.
 <Space>   Toggle play / pause
 m         Toggle frame-based seek or time-based seek
 c         Toggle capping frame durations at 1 second max
+i         Toggle display of the interface
 q         Quit
-
-<Home>    Jump to first frame
-<End>     Jump to last frame
 
 l         +1 frame / +1 second (multiplied by speed)
 <Right>   +1 frame / +1 second (multiplied by speed)
@@ -412,6 +436,9 @@ h         +1 frame / +1 second (multiplied by speed)
 H         +10 frames / +5 seconds (multiplied by speed)
 <S-Left>  +10 frames / +5 seconds (multiplied by speed)
 <PgUp>    +100 frames / +30 seconds (multiplied by speed)
+
+<Home>    Jump to first frame
+<End>     Jump to last frame
 
 j         Speed / 2
 J         Speed / 2
@@ -427,7 +454,11 @@ parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.
 parser.add_argument(
     "--size",
     "-s",
-    help="WxH. Defaults to the active terminal size. Ttyrec doesn't store the terminal size, so choose appropriately. E.g. 80x24",
+    help="WxH of the recorded ttyrec. Defaults to 500x200 which is typically bigger than most terminals. Ttyrec doesn't store this information so if this is critical you should define this. E.g. 80x24",
+)
+parser.add_argument(
+    "--terminal-size",
+    help="WxH of your output terminal display. Defaults to your autodetected terminal size. If this is smaller than the recorded ttyrec, output will be cropped (not wrapped). E.g. 80x24",
 )
 parser.add_argument("--ui", help="Whether to show the UI.", action=argparse.BooleanOptionalAction, default=True)
 parser.add_argument(
@@ -439,18 +470,31 @@ parser.add_argument(
     "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 100.", default=100
 )
 args = parser.parse_args()
-size = args.size
-width, height = None, None
-if size:
+
+
+def parse_size(size):
     try:
-        width, height = size.lower().split("x")
-        width, height = int(width), int(height)
+        return [int(x) for x in size.lower().split("x")][:2]
     except:
-        pass
+        return None, None
+
+
+emulator_width, emulator_height = parse_size(args.size)
+terminal_width, terminal_height = parse_size(args.terminal_size)
+
 timestep = 100
 try:
     timestep = int(args.timestep)
 except:
     pass
 gc.set_threshold(0)
-App(args.filepath, width=width, height=height, timestep=timestep, encoding=args.encoding, should_show_ui=args.ui).run()
+App(
+    args.filepath,
+    emulator_width=emulator_width,
+    emulator_height=emulator_height,
+    terminal_width=terminal_width,
+    terminal_height=terminal_height,
+    timestep=timestep,
+    encoding=args.encoding,
+    should_show_ui=args.ui,
+).run()
