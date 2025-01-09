@@ -77,6 +77,7 @@ class App:
 
         self.state = "play"
         self.is_dirty = True
+        self.is_jumping = True
         self.current_frame_time = 0
         self.speed = 1
         self.has_timecap = True
@@ -98,6 +99,7 @@ class App:
         sys.exit(0)
 
     def run(self):
+        sys.stdout.write("\x1b[?25l")  # Hide cursor
         tty.setcbreak(sys.stdin)
         self.setup_terminal()
         self.load()
@@ -112,7 +114,7 @@ class App:
             if self.state == "quit":
                 self.quit()
             if self.is_dirty:
-                self.display(self.current_frame)
+                self.render_buffer(*self.cache[self.current_frame - 1][1])
                 if self.should_show_ui:
                     self.show_ui()
                 self.is_dirty = False
@@ -150,6 +152,8 @@ class App:
             # frame duration) and reorient the viewer to the new frame.
             self.current_frame_time = time.time() + (pause if delta else 0)
             self.is_dirty = True
+            if self.current_frame != (previous_frame + 1):
+                self.is_jumping = True
 
     def show_ui(self):
         timestamp = self.cache[self.current_frame - 1][0]
@@ -186,12 +190,8 @@ class App:
         timecap = ""
         if self.has_timecap:
             timecap = " [Timecap]"
-        if self.terminal_height <= self.max_ttyrec_height + 2:
-            # Show UI overlapping on top of bottom two lines
-            sys.stdout.write(f"\x1b[{self.terminal_height-1};1H\x1b[2M")
-        else:
-            # Show UI on new line below existing output
-            sys.stdout.write("\n")
+        # Show UI overlapping on top of bottom two lines
+        sys.stdout.write(f"\x1b[{self.terminal_height-1};1H\x1b[2M")
         sys.stdout.write(bar)
         sys.stdout.write(f"\n{dt} - {elapsed} - [{self.speed}X speed] {mode}{timecap}")
         sys.stdout.flush()
@@ -235,23 +235,38 @@ class App:
             self.screen.cursor.x,
             self.screen.cursor.y,
             {y: dict(row) for y, row in self.screen._buffer.items()},
+            self.screen.dirty.copy(),
         )
 
-    def render_buffer(self, cursor_x, cursor_y, buffer):
+    def render_buffer(self, cursor_x, cursor_y, buffer, dirty):
         total_columns = min(self.terminal_width, self.emulator_width)
-        lines = [" " * total_columns] * min(self.terminal_height, self.max_ttyrec_height)
-        for y, row in buffer.items():
-            line = [" "] * total_columns
-            for x, cell in row.items():
+        if self.is_jumping:  # Redraw entire screen
+            lines = [" " * total_columns] * min(self.terminal_height, self.max_ttyrec_height)
+            for y, row in buffer.items():
+                line = [" "] * total_columns
+                for x, cell in row.items():
+                    try:
+                        line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
+                    except IndexError:
+                        pass
                 try:
-                    line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
+                    lines[y] = "".join(line)
                 except IndexError:
                     pass
-            try:
-                lines[y] = "".join(line)
-            except IndexError:
-                pass
-        return "\n".join(lines)
+            sys.stdout.write("\x1b[2J\x1b[H")  # Clear screen
+            sys.stdout.write("\n".join(lines))
+            self.is_jumping = False
+        else:  # Redraw only dirty lines
+            for y in dirty:
+                sys.stdout.write(f"\x1b[{y+1};1H\x1b[K")  # Clear line
+                line = [" "] * total_columns
+                for x, cell in buffer.get(y, {}).items():
+                    try:
+                        line[x] = self.render_cell(cell, is_cursor=x == cursor_x and y == cursor_y)
+                    except:
+                        pass
+                sys.stdout.write("".join(line))
+        sys.stdout.flush()
 
     def render_cell(self, cell, is_cursor=False):
         fg = cell.fg
@@ -289,12 +304,6 @@ class App:
         if indexed_colours or rgb_colours:
             result.append("\033[m")
         return "".join(result)
-
-    def display(self, frame):
-        sys.stdout.write("\x1b[2J\x1b[H")  # Clear screen
-        sys.stdout.write("\x1b[?25l")  # Hide cursor
-        sys.stdout.write(self.render_buffer(*self.cache[frame - 1][1]))
-        sys.stdout.flush()
 
     def setup_terminal(self):
         self.screen = pyte.Screen(self.emulator_width, self.emulator_height)
@@ -364,6 +373,7 @@ class App:
             duration = self.header[0] - timestamp
             if self.i == 0 or duration >= (self.timestep / 1000000):
                 self.cache.append([timestamp, self.copy_buffer(), duration])
+                self.screen.dirty.clear()
                 # self.cache.append([timestamp, self.render(), duration])
         else:
             self.cache.append([timestamp, self.copy_buffer(), 0])
@@ -407,6 +417,7 @@ class App:
                 self.mode = "time" if self.mode == "frame" else "frame"
             elif key == "i":
                 self.should_show_ui = not self.should_show_ui
+                self.is_jumping = True
         except:
             pass
 
