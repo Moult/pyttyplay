@@ -24,17 +24,15 @@ Help:
 
 ```
 $ python pyttyplay.py -h
-usage: pyttyplay [-h] [--size SIZE] [--ui | --no-ui] [--encoding ENCODING] [--timestep TIMESTEP] filepath
+usage: pyttyplay [-h] [--size SIZE] [--terminal-size TERMINAL_SIZE] [--ui | --no-ui] [--encoding ENCODING] [--timestep TIMESTEP] [--timecap-duration TIMECAP_DURATION] filepath
 
 A simple ttyrec player tailored for NetHack.
 
 <Space>   Toggle play / pause
 m         Toggle frame-based seek or time-based seek
 c         Toggle capping frame durations at 1 second max
+i         Toggle display of the interface
 q         Quit
-
-<Home>    Jump to first frame
-<End>     Jump to last frame
 
 l         +1 frame / +1 second (multiplied by speed)
 <Right>   +1 frame / +1 second (multiplied by speed)
@@ -48,6 +46,9 @@ H         +10 frames / +5 seconds (multiplied by speed)
 <S-Left>  +10 frames / +5 seconds (multiplied by speed)
 <PgUp>    +100 frames / +30 seconds (multiplied by speed)
 
+<Home>    Jump to first frame
+<End>     Jump to last frame
+
 j         Speed / 2
 J         Speed / 2
 <Down>    Speed / 2
@@ -60,10 +61,14 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --size SIZE, -s SIZE  WxH. Defaults to the active terminal size. Ttyrec doesn't store the terminal size, so choose appropriately. E.g. 80x24
+  --size SIZE, -s SIZE  WxH of the recorded ttyrec. Defaults to 500x200 which is typically bigger than most terminals. Ttyrec doesn't store this information so if this is critical you should define this. E.g. 80x24
+  --terminal-size TERMINAL_SIZE
+                        WxH of your output terminal display. Defaults to your autodetected terminal size. If this is smaller than the recorded ttyrec, output will be cropped (not wrapped). E.g. 80x24
   --ui, --no-ui         Whether to show the UI.
   --encoding ENCODING, -e ENCODING
                         Defaults to autodetecting in the order utf8, cp437, then ascii. Ttyrec files don't store encoding, so choose appropriately.
   --timestep TIMESTEP, -t TIMESTEP
                         Frames shorter than this microsecond duration are merged. Defaults to 100.
+  --timecap-duration TIMECAP_DURATION, -c TIMECAP_DURATION
+                        Frames longer than this second duration are capped at this duration. Defaults to 1.
 ```

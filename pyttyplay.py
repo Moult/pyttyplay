@@ -23,6 +23,7 @@ class App:
         terminal_width=None,
         terminal_height=None,
         timestep=None,
+        timecap_duration=None,
         encoding=None,
         should_show_ui=True,
     ):
@@ -55,6 +56,7 @@ class App:
         self.i = 0
         self.bytes_processed = 0
         self.timestep = timestep
+        self.timecap_duration = timecap_duration
         self.encoding = encoding
         self.truncated_payload = None
         if not encoding:
@@ -116,8 +118,8 @@ class App:
                 self.is_dirty = False
             if self.state == "play":
                 duration = self.cache[self.current_frame - 1][2]
-                if self.has_timecap and duration > 1:
-                    duration = 1
+                if self.has_timecap and duration > self.timecap_duration:
+                    duration = self.timecap_duration
                 duration /= self.speed
                 if time.time() - self.current_frame_time >= duration and self.current_frame < self.total_frames:
                     self.seek()
@@ -469,6 +471,13 @@ parser.add_argument(
 parser.add_argument(
     "--timestep", "-t", help="Frames shorter than this microsecond duration are merged. Defaults to 100.", default=100
 )
+parser.add_argument(
+    "--timecap-duration",
+    "-c",
+    help="Frames longer than this second duration are capped at this duration. Defaults to 1.",
+    default=1,
+)
+
 args = parser.parse_args()
 
 
@@ -479,14 +488,16 @@ def parse_size(size):
         return None, None
 
 
+def parse_primitive(fn, x, default):
+    try:
+        return fn(x)
+    except:
+        return default
+
+
 emulator_width, emulator_height = parse_size(args.size)
 terminal_width, terminal_height = parse_size(args.terminal_size)
 
-timestep = 100
-try:
-    timestep = int(args.timestep)
-except:
-    pass
 gc.set_threshold(0)
 App(
     args.filepath,
@@ -494,7 +505,8 @@ App(
     emulator_height=emulator_height,
     terminal_width=terminal_width,
     terminal_height=terminal_height,
-    timestep=timestep,
+    timestep=parse_primitive(int, args.timestep, 100),
+    timecap_duration=parse_primitive(float, args.timecap_duration, 1),
     encoding=args.encoding,
     should_show_ui=args.ui,
 ).run()
