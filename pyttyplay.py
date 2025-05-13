@@ -228,13 +228,13 @@ class App:
     def copy_buffer(self):
         try:
             # We only autodetect height because it's cheap.
-            self.max_ttyrec_height = max(max(self.screen._buffer.keys()) + 1, self.max_ttyrec_height)
+            self.max_ttyrec_height = max(max(self.screen.buffer.keys()) + 1, self.max_ttyrec_height)
         except:
             pass
         return (
             self.screen.cursor.x,
             self.screen.cursor.y,
-            {y: dict(row) for y, row in self.screen._buffer.items()},
+            {y: dict(row) for y, row in self.screen.buffer.items()},
             self.screen.dirty.copy(),
         )
 
