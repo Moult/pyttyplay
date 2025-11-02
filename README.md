@@ -57,7 +57,7 @@ K         Speed * 2
 <Up>      Speed * 2
 
 positional arguments:
-  filepath              Path or URL to .ttyrec file. Supports .gz.
+  filepath              Path or URL to .ttyrec file. Supports .gz and .bz2.
 
 options:
   -h, --help            show this help message and exit

@@ -45,6 +45,14 @@ class App:
                 self.temp_files.append(tmp)
                 shutil.copyfileobj(f_in, tmp)
                 filepath = tmp.name
+        elif filepath.lower().endswith(".bz2"):
+            import bz2
+
+            with bz2.open(filepath, "rb") as f_in:
+                tmp = tempfile.NamedTemporaryFile(suffix=os.path.basename(filepath[:-3]))
+                self.temp_files.append(tmp)
+                shutil.copyfileobj(f_in, tmp)
+                filepath = tmp.name
 
         if os.path.exists(filepath):
             self.filepath = filepath
@@ -463,7 +471,7 @@ K         Speed * 2
 parser = argparse.ArgumentParser(
     prog="pyttyplay", description=description, formatter_class=argparse.RawDescriptionHelpFormatter
 )
-parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz.")
+parser.add_argument("filepath", help="Path or URL to .ttyrec file. Supports .gz and .bz2.")
 parser.add_argument(
     "--size",
     "-s",
